@@ -1,208 +1,297 @@
 /**
- * ВЕСЬ КОД ОБОРАЧИВАЕМ В ОЖИДАНИЕ FIREBASE
- * Это предотвращает ошибку "window.dbRefs is undefined"
+ * ГЛОБАЛЬНЫЙ ОБРАБОТЧИК СОБЫТИЯ 'firebase-ready'
+ * Мы оборачиваем весь код в это событие, чтобы script.js не запускался раньше,
+ * чем Firebase в файле index.html успеет загрузиться и создать объект window.dbRefs.
  */
-window.addEventListener('firebase-ready', () => {
+window.addEventListener('firebase-ready', function() {
     
-    // 1. Извлекаем инструменты Firebase из глобального окна
+    // ПРОВЕРКА: Если по какой-то причине объект не создался, выводим ошибку в консоль
+    if (!window.dbRefs) {
+        console.error("Критическая ошибка: Инструменты Firebase не найдены в объекте window.");
+        return;
+    }
+
+    // Извлекаем все необходимые функции из глобального объекта window
     const { ref, set, push, onValue, update } = window.dbRefs;
     const database = window.db;
 
-    // 2. Управление сессией (кто залогинен в этом браузере)
+    // --- МОДУЛЬ ЛОКАЛЬНОГО ХРАНЕНИЯ (SESSION) ---
+    // Позволяет приложению помнить, кто вошел в систему, даже после перезагрузки страницы
     const storage = {
-        getSession: () => JSON.parse(localStorage.getItem('m_session')),
-        setSession: (user) => localStorage.setItem('m_session', JSON.stringify(user)),
-        clearSession: () => localStorage.removeItem('m_session')
+        getSession: function() {
+            const sessionData = localStorage.getItem('messenger_user_session');
+            return sessionData ? JSON.parse(sessionData) : null;
+        },
+        setSession: function(userData) {
+            localStorage.setItem('messenger_user_session', JSON.stringify(userData));
+        },
+        clearSession: function() {
+            localStorage.removeItem('messenger_user_session');
+        }
     };
 
+    // Глобальные переменные текущего состояния
     let currentUser = storage.getSession();
     let activeRecipient = null;
-    const STICKERS = ['🔥', '😂', '❤️', '👍', '🚀', '💀', '🤡', '🍕', '🌈', '💎'];
+    const STICKERS_LIST = ['🔥', '😂', '❤️', '👍', '🚀', '💀', '🤡', '🍕', '🌈', '💎', '🦾', '🍦'];
 
-    // 3. ЛОГИКА АВТОРИЗАЦИИ
+    // --- МОДУЛЬ АВТОРИЗАЦИИ И РЕГИСТРАЦИИ ---
     const auth = {
-        handleAuth() {
-            const nameInput = document.getElementById('username-input');
-            const passInput = document.getElementById('password-input');
-            const avatarImg = document.getElementById('preview-avatar');
+        /**
+         * handleAuth: Обрабатывает нажатие кнопки "Войти/Создать"
+         * Проверяет наличие пользователя в Firebase Realtime Database
+         */
+        handleAuth: function() {
+            const usernameField = document.getElementById('username-input');
+            const passwordField = document.getElementById('password-input');
+            const avatarPreview = document.getElementById('preview-avatar');
 
-            const name = nameInput.value.trim();
-            const pass = passInput.value.trim();
+            const name = usernameField.value.trim();
+            const pass = passwordField.value.trim();
 
-            if (!name || !pass) {
-                alert("Введите логин и пароль!");
+            if (name === "" || pass === "") {
+                alert("Пожалуйста, заполните логин и пароль!");
                 return;
             }
 
-            // Ищем пользователя в облаке
+            // Создаем ссылку на путь пользователя в базе данных
             const userRef = ref(database, 'users/' + name);
+
+            // Один раз запрашиваем данные по этому пути
             onValue(userRef, (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    if (data.password === pass) {
-                        this.completeLogin(name, data.avatar);
+                const userData = snapshot.val();
+
+                if (userData) {
+                    // Если пользователь существует — проверяем пароль
+                    if (userData.password === pass) {
+                        this.executeLogin(name, userData.avatar);
                     } else {
-                        alert("Неверный пароль!");
+                        alert("Пароль введен неверно. Попробуйте снова.");
                     }
                 } else {
-                    // Создаем нового пользователя, если его нет
-                    set(userRef, { password: pass, avatar: avatarImg.src })
-                        .then(() => this.completeLogin(name, avatarImg.src));
+                    // Если пользователя нет — регистрируем его (создаем запись в облаке)
+                    set(userRef, {
+                        password: pass,
+                        avatar: avatarPreview.src
+                    }).then(() => {
+                        this.executeLogin(name, avatarPreview.src);
+                    }).catch((error) => {
+                        console.error("Ошибка при регистрации:", error);
+                    });
                 }
             }, { onlyOnce: true });
         },
 
-        completeLogin(name, avatar) {
-            const userObj = { name, avatar };
-            storage.setSession(userObj);
-            currentUser = userObj;
+        executeLogin: function(name, avatar) {
+            const userObject = { name: name, avatar: avatar };
+            storage.setSession(userObject);
+            currentUser = userObject;
+            // Перезагружаем страницу, чтобы инициализировать интерфейс чата
             location.reload();
         },
 
-        logout() {
+        logout: function() {
             storage.clearSession();
             location.reload();
         }
     };
 
-    // 4. ЛОГИКА ЧАТА И СООБЩЕНИЙ
+    // --- МОДУЛЬ ЧАТА И СООБЩЕНИЙ ---
     const chat = {
-        open(name) {
-            activeRecipient = name;
+        /**
+         * open: Активирует окно чата с выбранным пользователем
+         */
+        open: function(targetName) {
+            activeRecipient = targetName;
             
-            // Переключение экранов интерфейса
+            // Скрываем приветствие и показываем активный чат
             document.getElementById('welcome-msg').classList.add('hidden');
             document.getElementById('chat-active').classList.remove('hidden');
-            document.getElementById('chat-with-name').innerText = name;
             
-            // Загружаем аватар собеседника
-            onValue(ref(database, 'users/' + name), (snap) => {
-                const val = snap.val();
-                if (val) document.getElementById('chat-with-avatar').src = val.avatar;
+            // Устанавливаем имя и аватар собеседника в шапке чата
+            document.getElementById('chat-with-name').innerText = targetName;
+            
+            // Загружаем актуальный аватар собеседника из базы
+            onValue(ref(database, 'users/' + targetName), (snap) => {
+                const data = snap.val();
+                if (data && data.avatar) {
+                    document.getElementById('chat-with-avatar').src = data.avatar;
+                }
             }, { onlyOnce: true });
 
-            this.listenMessages();
+            // Запускаем прослушивание сообщений именно для этой пары людей
+            this.startMessageListener();
         },
 
-        // СЛУШАЕМ ОБЛАКО В РЕАЛЬНОМ ВРЕМЕНИ
-        listenMessages() {
-            const chatId = [currentUser.name, activeRecipient].sort().join('_vs_');
-            const chatRef = ref(database, 'messages/' + chatId);
+        /**
+         * startMessageListener: Слушает изменения в облаке и мгновенно обновляет экран
+         */
+        startMessageListener: function() {
+            // Генерируем уникальный ID чата (сортируем имена, чтобы ID был одинаков для обоих)
+            const chatId = [currentUser.name, activeRecipient].sort().join('_id_');
+            const messagesRef = ref(database, 'messages/' + chatId);
 
-            onValue(chatRef, (snapshot) => {
-                const container = document.getElementById('messages-display');
-                container.innerHTML = '';
+            // Эта функция будет срабатывать КАЖДЫЙ РАЗ, когда кто-то пишет сообщение
+            onValue(messagesRef, (snapshot) => {
+                const messagesDisplay = document.getElementById('messages-display');
+                messagesDisplay.innerHTML = ''; // Очищаем экран перед перерисовкой
                 
-                const data = snapshot.val();
-                if (data) {
-                    Object.values(data).forEach(m => {
-                        const div = document.createElement('div');
-                        const isMy = m.sender === currentUser.name;
+                const allMessages = snapshot.val();
+                
+                if (allMessages) {
+                    // Превращаем объект сообщений в массив и проходим по каждому
+                    Object.values(allMessages).forEach(message => {
+                        const messageElement = document.createElement('div');
+                        const isOutgoing = message.sender === currentUser.name;
                         
-                        div.className = `msg ${isMy ? 'sent' : 'received'}`;
-                        if (m.isSticker) {
-                            div.style.background = 'none';
-                            div.style.fontSize = '45px';
+                        // Определяем стиль сообщения (свое или чужое)
+                        messageElement.className = isOutgoing ? 'msg sent' : 'msg received';
+                        
+                        // Если это стикер — убираем фон и увеличиваем размер
+                        if (message.isSticker) {
+                            messageElement.style.background = 'none';
+                            messageElement.style.fontSize = '50px';
                         }
                         
-                        div.innerHTML = `
-                            <div>${m.text}</div>
-                            <small style="font-size:10px; opacity:0.5; display:block; margin-top:5px;">${m.time}</small>
+                        messageElement.innerHTML = `
+                            <div class="msg-text">${message.text}</div>
+                            <div class="msg-time" style="font-size: 10px; opacity: 0.5; margin-top: 5px;">${message.time}</div>
                         `;
-                        container.appendChild(div);
+                        
+                        messagesDisplay.appendChild(messageElement);
                     });
-                    container.scrollTop = container.scrollHeight;
+                    
+                    // Автоматически прокручиваем чат в самый низ
+                    messagesDisplay.scrollTop = messagesDisplay.scrollHeight;
                 }
             });
         },
 
-        send(sticker = null) {
-            const input = document.getElementById('msg-input');
-            const text = sticker || input.value.trim();
+        /**
+         * send: Отправляет текстовое сообщение или стикер в Firebase
+         */
+        send: function(stickerContent = null) {
+            const inputField = document.getElementById('msg-input');
+            const messageBody = stickerContent || inputField.value.trim();
 
-            if (!text || !activeRecipient) return;
+            if (messageBody === "" || !activeRecipient) {
+                return;
+            }
 
-            const chatId = [currentUser.name, activeRecipient].sort().join('_vs_');
-            const chatRef = ref(database, 'messages/' + chatId);
-            const newMessageRef = push(chatRef);
+            const chatId = [currentUser.name, activeRecipient].sort().join('_id_');
+            const chatPath = ref(database, 'messages/' + chatId);
+            
+            // Создаем новый уникальный ключ для сообщения в облаке
+            const newMessageRef = push(chatPath);
 
             set(newMessageRef, {
                 sender: currentUser.name,
-                text: text,
-                isSticker: !!sticker,
+                text: messageBody,
+                isSticker: !!stickerContent,
                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }).then(() => {
+                // Очищаем ввод и закрываем панель стикеров
+                inputField.value = '';
+                if (stickerContent) {
+                    ui.toggleStickers();
+                }
             });
-
-            input.value = '';
-            if (sticker) ui.toggleStickers();
         }
     };
 
-    // 5. ИНТЕРФЕЙС И КНОПКИ
+    // --- МОДУЛЬ ИНТЕРФЕЙСА (UI) ---
     const ui = {
-        init() {
-            if (!currentUser) return;
+        init: function() {
+            // Если пользователь не авторизован — ничего не делаем, он видит экран входа
+            if (!currentUser) {
+                return;
+            }
 
+            // Переключаем видимость экранов
             document.getElementById('auth-screen').classList.add('hidden');
             document.getElementById('app-container').classList.remove('hidden');
 
+            // Отображаем данные профиля текущего пользователя
             document.getElementById('my-name-display').innerText = currentUser.name;
             document.getElementById('my-avatar-img').src = currentUser.avatar;
 
-            // Настройка стикеров
-            const picker = document.getElementById('sticker-picker');
-            picker.innerHTML = ''; // Очистка на всякий случай
-            STICKERS.forEach(s => {
-                const span = document.createElement('span');
-                span.className = 'sticker';
-                span.innerText = s;
-                span.style.cursor = 'pointer';
-                span.onclick = () => chat.send(s);
-                picker.appendChild(span);
+            // Генерируем список стикеров в панели
+            const stickerPicker = document.getElementById('sticker-picker');
+            stickerPicker.innerHTML = ''; // Чистим на всякий случай
+            
+            STICKERS_LIST.forEach(emoji => {
+                const stickerSpan = document.createElement('span');
+                stickerSpan.className = 'sticker';
+                stickerSpan.innerText = emoji;
+                stickerSpan.style.cursor = 'pointer';
+                stickerSpan.style.fontSize = '24px';
+                // При клике на стикер — отправляем его
+                stickerSpan.onclick = function() {
+                    chat.send(emoji);
+                };
+                stickerPicker.appendChild(stickerSpan);
             });
 
-            // Слушатель Enter
-            document.getElementById('msg-input').onkeypress = (e) => {
-                if (e.key === 'Enter') chat.send();
+            // Навешиваем событие на клавишу Enter в поле ввода
+            document.getElementById('msg-input').onkeypress = function(event) {
+                if (event.key === 'Enter') {
+                    chat.send();
+                }
             };
         },
-        toggleStickers() {
-            document.getElementById('sticker-picker').classList.toggle('hidden');
+
+        toggleStickers: function() {
+            const panel = document.getElementById('sticker-picker');
+            panel.classList.toggle('hidden');
         }
     };
 
-    // --- ПОИСК ---
-    document.getElementById('user-search').oninput = (e) => {
-        const q = e.target.value.trim();
-        const list = document.getElementById('contacts-list');
-        list.innerHTML = '';
+    // --- ОБРАБОТЧИКИ СОБЫТИЙ ДЛЯ ПОИСКА И АВАТАРОВ ---
 
-        if (q && q !== currentUser.name) {
-            const item = document.createElement('div');
-            item.className = 'contact-item';
-            item.style.padding = '15px';
-            item.style.cursor = 'pointer';
-            item.innerHTML = `<strong>${q}</strong> <br> <small style="color:gray">Открыть чат</small>`;
-            item.onclick = () => chat.open(q);
-            list.appendChild(item);
+    // Поиск пользователей в реальном времени
+    document.getElementById('user-search').oninput = function(event) {
+        const query = event.target.value.trim();
+        const contactsContainer = document.getElementById('contacts-list');
+        contactsContainer.innerHTML = '';
+
+        if (query !== "" && query !== currentUser.name) {
+            const contactItem = document.createElement('div');
+            contactItem.className = 'contact-item';
+            contactItem.style.padding = '15px';
+            contactItem.style.cursor = 'pointer';
+            contactItem.style.borderBottom = '1px solid #222d34';
+            contactItem.innerHTML = `<strong>${query}</strong><br><small style="color: gray;">Начать чат</small>`;
+            
+            contactItem.onclick = function() {
+                chat.open(query);
+            };
+            
+            contactsContainer.appendChild(contactItem);
         }
     };
 
-    // --- ОБРАБОТКА ФОТО ---
+    // Загрузка и превью аватара при регистрации
     const avatarInput = document.getElementById('avatar-input');
     if (avatarInput) {
-        avatarInput.onchange = (e) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => document.getElementById('preview-avatar').src = ev.target.result;
-            reader.readAsDataURL(e.target.files[0]);
+        avatarInput.onchange = function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const fileReader = new FileReader();
+                fileReader.onload = function(e) {
+                    document.getElementById('preview-avatar').src = e.target.result;
+                };
+                fileReader.readAsDataURL(file);
+            }
         };
     }
 
-    // Запускаем всё!
+    // --- ФИНАЛЬНЫЙ ЗАПУСК ---
     ui.init();
-    
-    // Делаем объекты глобальными для кнопок в HTML (onclick)
+
+    // Привязываем модули к глобальному окну, чтобы HTML-атрибуты (onclick) могли их вызвать
     window.auth = auth;
     window.chat = chat;
     window.ui = ui;
+
+    console.log("Приложение Messenger успешно инициализировано и готово к работе.");
 });

@@ -1,7 +1,6 @@
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
-    window.dispatchEvent(new Event('firebase-ready'));
 
     const firebaseConfig = {
         apiKey: "AIzaSyBg3A8AhAU3mxAB79mJLF14tsKhJlQjyzU",
@@ -14,14 +13,14 @@
         measurementId: "G-898YHWJGXV"
     };
 
-    try {
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
-        window.db = db;
-        window.dbRefs = { ref, set, push, onValue, update };
-        console.log("Firebase OK");
-    } catch (error) {
-        console.error("Ошибка Firebase:", error);
-    }
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    window.db = db;
+    window.dbRefs = { ref, set, push, onValue, update };
+
+    // ЭТА СТРОЧКА ВАЖНА: она дает отмашку для script.js
+    window.dispatchEvent(new Event('firebase-ready'));
 </script>
-<script src="script.js"></script>
+
+<script src="script.js" defer></script>
