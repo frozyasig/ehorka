@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Messenger Ultimate</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="auth-screen" class="modal">
+        <div class="auth-card">
+            <h1>Messenger</h1>
+            <div class="avatar-picker" onclick="document.getElementById('avatar-input').click()">
+                <img src="https://cdn-icons-png.flaticon.com/512/149/149071.png" id="preview-avatar">
+                <p>Нажми, чтобы выбрать фото</p>
+            </div>
+            <input type="file" id="avatar-input" accept="image/*" hidden>
+            
+            <div class="form-group">
+                <input type="text" id="username-input" placeholder="Введите никнейм">
+                <input type="password" id="password-input" placeholder="Придумайте пароль">
+            </div>
+            
+            <button class="primary-btn" onclick="auth.handleAuth()">Войти или Регистрация</button>
+            <p class="small-text">Если никнейма нет в базе, аккаунт создастся автоматически.</p>
+        </div>
+    </div>
+
+    <div id="app-container" class="app-container hidden">
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <div class="user-profile" onclick="ui.toggleSettings(true)">
+                    <img id="my-avatar-img" src="">
+                    <span id="my-name-display"></span>
+                </div>
+                <button class="exit-btn" onclick="auth.logout()">🚪</button>
+            </header>
+
+            <div class="search-area">
+                <input type="text" id="user-search" placeholder="Поиск (введите имя)...">
+            </div>
+
+            <div id="contacts-list" class="contacts-list">
+                </div>
+        </aside>
+
+        <main class="chat-main">
+            <div id="empty-chat-view" class="empty-view">
+                <p>Выберите контакт из поиска, чтобы начать общение</p>
+            </div>
+
+            <div id="active-chat-view" class="chat-active-view hidden">
+                <header class="chat-header">
+                    <img id="active-chat-avatar" src="">
+                    <h3 id="active-chat-name">Имя</h3>
+                    <button class="call-btn" onclick="calls.initiateCall()">📞 Позвонить</button>
+                </header>
+
+                <div id="messages-list" class="messages-list">
+                    </div>
+
+                <div class="chat-input-bar">
+                    <button class="emoji-toggle" onclick="ui.toggleEmojiPanel()">😊</button>
+                    <div id="emoji-panel" class="emoji-panel hidden"></div>
+                    
+                    <input type="text" id="msg-input" placeholder="Напишите сообщение...">
+                    <button class="send-btn" onclick="chat.sendMessage()">➤</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="call-modal" class="modal hidden">
+        <div class="call-interface">
+            <div class="call-info">
+                <img id="call-avatar" src="">
+                <h2 id="call-name">Звонок...</h2>
+                <p id="call-status">Подключение к камере...</p>
+            </div>
+            
+            <div class="video-grid">
+                <video id="local-video" autoplay muted playsinline></video>
+                <div class="video-placeholder">
+                    <span>Собеседник</span>
+                </div>
+            </div>
+
+            <div class="call-controls">
+                <button class="hangup-btn" onclick="calls.endCall()">Завершить</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="modal hidden">
+        <div class="auth-card">
+            <h3>Настройки профиля</h3>
+            <div class="avatar-picker" onclick="document.getElementById('edit-avatar-input').click()">
+                <img id="edit-preview-avatar">
+            </div>
+            <input type="file" id="edit-avatar-input" accept="image/*" hidden>
+            <input type="text" id="edit-username-input">
+            
+            <div class="btn-row">
+                <button class="primary-btn" onclick="auth.updateProfile()">Сохранить</button>
+                <button class="secondary-btn" onclick="ui.toggleSettings(false)">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="ringtone" loop src="https://www.soundjay.com/phone/phone-calling-1.mp3"></audio>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+:root {
+    --bg-color: #0c1317;
+    --sidebar-color: #111b21;
+    --chat-bg: #0b141a;
+    --accent: #00a884;
+    --text-primary: #e9edef;
+    --msg-sent: #005c4b;
+    --msg-received: #202c33;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.hidden { display: none !important; }
+
+/* Модальные окна */
+.modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.auth-card {
+    background: #222e35;
+    padding: 30px;
+    border-radius: 12px;
+    width: 320px;
+    text-align: center;
+}
+
+.avatar-picker img {
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--accent);
+    cursor: pointer;
+}
+
+/* Приложение */
+.app-container { display: flex; height: 100vh; }
+
+.sidebar {
+    width: 350px;
+    background: var(--sidebar-color);
+    border-right: 1px solid #2f3b43;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    background: #202c33;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.user-profile { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.user-profile img { width: 40px; height: 40px; border-radius: 50%; }
+
+.contacts-list { flex: 1; overflow-y: auto; }
+.contact-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #222d34;
+}
+.contact-item:hover { background: #2a3942; }
+
+/* Чат */
+.chat-main { flex: 1; background: var(--chat-bg); display: flex; flex-direction: column; }
+.empty-view { flex: 1; display: flex; justify-content: center; align-items: center; color: #8696a0; }
+
+.chat-active-view { display: flex; flex-direction: column; height: 100%; }
+.chat-header { background: #202c33; padding: 10px 20px; display: flex; align-items: center; gap: 15px; }
+.chat-header img { width: 40px; height: 40px; border-radius: 50%; }
+
+.messages-list { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.msg { padding: 8px 12px; border-radius: 8px; max-width: 65%; font-size: 15px; line-height: 1.4; }
+.sent { align-self: flex-end; background: var(--msg-sent); }
+.received { align-self: flex-start; background: var(--msg-received); }
+
+.chat-input-bar { background: #202c33; padding: 10px; display: flex; align-items: center; gap: 10px; position: relative; }
+.chat-input-bar input { flex: 1; background: #2a3942; border: none; padding: 12px; border-radius: 8px; color: white; outline: none; }
+
+/* Звонок */
+.call-interface { text-align: center; color: white; width: 80%; max-width: 600px; }
+.video-grid { display: flex; gap: 10px; margin: 20px 0; height: 300px; }
+#local-video { flex: 1; background: #000; border-radius: 10px; object-fit: cover; }
+.video-placeholder { flex: 1; background: #333; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+
+/* Стили кнопок */
+button { cursor: pointer; border: none; transition: 0.3s; }
+.primary-btn { background: var(--accent); color: white; padding: 12px; border-radius: 5px; width: 100%; }
+.send-btn { background: var(--accent); color: white; width: 45px; height: 45px; border-radius: 50%; }
+.hangup-btn { background: #ef4444; color: white; padding: 15px 30px; border-radius: 30px; }
+.call-btn { background: none; font-size: 1.2rem; margin-left: auto; }
+
+.emoji-panel {
+    position: absolute; bottom: 70px; left: 10px;
+    background: #2a3942; padding: 10px; border-radius: 10px;
+    display: grid; grid-template-columns: repeat(4, 40px); gap: 5px;
+}
+.emoji-item { font-size: 24px; cursor: pointer; text-align: center; }
