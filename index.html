@@ -1,33 +1,26 @@
 <script type="module">
-        // Импортируем нужные функции из Firebase
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // ТВОЙ КОНФИГ (Я уже вставил твои данные сюда)
-        const firebaseConfig = {
-            apiKey: "AIzaSyBg3A8AhAU3mxAB79mJLF14tsKhJlQjyzU",
-            authDomain: "ehorka-77cb0.firebaseapp.com",
-            databaseURL: "https://ehorka-77cb0-default-rtdb.firebaseio.com",
-            projectId: "ehorka-77cb0",
-            storageBucket: "ehorka-77cb0.firebasestorage.app",
-            messagingSenderId: "549560366532",
-            appId: "1:549560366532:web:83f251aa58be7de61c6091",
-            measurementId: "G-898YHWJGXV"
-        };
+    const firebaseConfig = {
+        apiKey: "AIzaSyBg3A8AhAU3mxAB79mJLF14tsKhJlQjyzU",
+        authDomain: "ehorka-77cb0.firebaseapp.com",
+        databaseURL: "https://ehorka-77cb0-default-rtdb.firebaseio.com",
+        projectId: "ehorka-77cb0",
+        storageBucket: "ehorka-77cb0.firebasestorage.app",
+        messagingSenderId: "549560366532",
+        appId: "1:549560366532:web:83f251aa58be7de61c6091",
+        measurementId: "G-898YHWJGXV"
+    };
 
-        // Инициализируем приложение
+    try {
         const app = initializeApp(firebaseConfig);
-        
-        // Получаем доступ к базе данных
         const db = getDatabase(app);
-
-        // Делаем Firebase доступным для нашего основного файла script.js
         window.db = db;
         window.dbRefs = { ref, set, push, onValue, update };
-        
-        console.log("Firebase успешно подключен!");
-    </script>
-
-    <script src="script.js"></script>
-</body>
-</html>
+        console.log("Firebase OK");
+    } catch (error) {
+        console.error("Ошибка Firebase:", error);
+    }
+</script>
+<script src="script.js"></script>
