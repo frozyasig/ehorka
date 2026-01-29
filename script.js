@@ -1,293 +1,205 @@
-// === МОДУЛЬ ХРАНЕНИЯ ДАННЫХ (STORAGE) ===
-const Storage = {
-    // Получение всех пользователей
-    getUsers: () => JSON.parse(localStorage.getItem('messenger_users')) || {},
-    
-    // Регистрация нового или обновление старого
-    saveUser: (username, userData) => {
-        const users = Storage.getUsers();
-        users[username] = userData;
-        localStorage.setItem('messenger_users', JSON.stringify(users));
-    },
-    
-    // История сообщений
-    getMessages: () => JSON.parse(localStorage.getItem('messenger_history')) || {},
-    saveMessages: (history) => localStorage.setItem('messenger_history', JSON.stringify(history)),
-    
-    // Текущий вход
-    getSession: () => JSON.parse(localStorage.getItem('messenger_session')),
-    setSession: (user) => localStorage.setItem('messenger_session', JSON.stringify(user)),
-    clearSession: () => localStorage.removeItem('messenger_session')
+// === ПОДКЛЮЧЕНИЕ К FIREBASE ===
+// Эти переменные прилетают из блока <script type="module"> в index.html
+const { ref, set, push, onValue } = window.dbRefs;
+const database = window.db;
+
+// === ХРАНИЛИЩЕ СЕССИИ (Чтобы не вылетало при обновлении) ===
+const storage = {
+    getSession: () => JSON.parse(localStorage.getItem('m_session')),
+    setSession: (user) => localStorage.setItem('m_session', JSON.stringify(user)),
+    clearSession: () => localStorage.removeItem('m_session')
 };
 
-// === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
-let currentUser = Storage.getSession();
-let activeChatPartner = null;
-let videoStream = null;
-const EMOJIS = ['🔥', '😂', '❤️', '👍', '🚀', '💀', '🤡', '🍕', '🦾', '🌈', '💎', '🍦'];
+let currentUser = storage.getSession();
+let activeRecipient = null;
+const STICKERS = ['🔥', '😂', '❤️', '👍', '🚀', '💀', '🤡', '🍕', '🌈', '💎'];
 
-// === МОДУЛЬ АВТОРИЗАЦИИ (AUTH) ===
+// === СИСТЕМА ВХОДА ===
 const auth = {
     handleAuth() {
-        const name = document.getElementById('username-input').value.trim();
-        const pass = document.getElementById('password-input').value.trim();
-        const avatar = document.getElementById('preview-avatar').src;
+        const nameInput = document.getElementById('username-input');
+        const passInput = document.getElementById('password-input');
+        const avatarImg = document.getElementById('preview-avatar');
+
+        const name = nameInput.value.trim();
+        const pass = passInput.value.trim();
 
         if (!name || !pass) {
-            alert("Пожалуйста, заполните все поля!");
+            alert("Введите логин и пароль!");
             return;
         }
 
-        const users = Storage.getUsers();
-
-        if (users[name]) {
-            // Если пользователь найден — проверяем пароль
-            if (users[name].password === pass) {
-                this.completeAuth(name, users[name].avatar);
+        // Запрашиваем данные пользователя из облака
+        const userRef = ref(database, 'users/' + name);
+        onValue(userRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Если юзер есть — сверяем пароль
+                if (data.password === pass) {
+                    this.completeLogin(name, data.avatar);
+                } else {
+                    alert("Неверный пароль!");
+                }
             } else {
-                alert("Неверный пароль!");
+                // Если юзера нет — создаем в Firebase
+                set(userRef, { password: pass, avatar: avatarImg.src })
+                    .then(() => this.completeLogin(name, avatarImg.src));
             }
-        } else {
-            // Если не найден — создаем новый аккаунт
-            Storage.saveUser(name, { password: pass, avatar: avatar });
-            this.completeAuth(name, avatar);
-            alert("Аккаунт создан успешно!");
-        }
+        }, { onlyOnce: true });
     },
 
-    completeAuth(name, avatar) {
+    completeLogin(name, avatar) {
         const userObj = { name, avatar };
-        Storage.setSession(userObj);
+        storage.setSession(userObj);
         currentUser = userObj;
-        location.reload(); // Перезапуск для инициализации UI
-    },
-
-    logout() {
-        Storage.clearSession();
         location.reload();
     },
 
-    updateProfile() {
-        const newName = document.getElementById('edit-username-input').value.trim();
-        const newAvatar = document.getElementById('edit-preview-avatar').src;
-        
-        if (!newName) return;
-
-        let users = Storage.getUsers();
-        const password = users[currentUser.name].password;
-
-        // Удаляем старый ключ и создаем новый
-        delete users[currentUser.name];
-        users[newName] = { password, avatar: newAvatar };
-        
-        localStorage.setItem('messenger_users', JSON.stringify(users));
-        this.completeAuth(newName, newAvatar);
+    logout() {
+        storage.clearSession();
+        location.reload();
     }
 };
 
-// === МОДУЛЬ ЧАТА (CHAT) ===
+// === СИСТЕМА ЧАТА ===
 const chat = {
-    openChat(partnerName) {
-        activeChatPartner = partnerName;
-        const users = Storage.getUsers();
-
-        document.getElementById('empty-chat-view').classList.add('hidden');
-        document.getElementById('active-chat-view').classList.remove('hidden');
+    open(name) {
+        activeRecipient = name;
         
-        document.getElementById('active-chat-name').innerText = partnerName;
-        document.getElementById('active-chat-avatar').src = users[partnerName] ? users[partnerName].avatar : 'https://via.placeholder.com/40';
+        // Переключаем экраны
+        document.getElementById('welcome-msg').classList.add('hidden');
+        document.getElementById('chat-active').classList.remove('hidden');
+        
+        // Ставим имя собеседника
+        document.getElementById('chat-with-name').innerText = name;
+        
+        // Получаем аватар собеседника из базы
+        onValue(ref(database, 'users/' + name), (snap) => {
+            const val = snap.val();
+            if (val) document.getElementById('chat-with-avatar').src = val.avatar;
+        }, { onlyOnce: true });
 
-        this.renderMessages();
+        // Начинаем слушать сообщения
+        this.listenMessages();
     },
 
-    sendMessage(emoji = null) {
+    listenMessages() {
+        // Создаем уникальный ID чата для двух людей (всегда одинаковый)
+        const chatId = [currentUser.name, activeRecipient].sort().join('_vs_');
+        const chatRef = ref(database, 'messages/' + chatId);
+
+        // Firebase сам вызовет эту функцию, если кто-то (ты или друг) напишет сообщение
+        onValue(chatRef, (snapshot) => {
+            const container = document.getElementById('messages-display');
+            container.innerHTML = ''; // Очищаем перед рендером
+            
+            const data = snapshot.val();
+            if (data) {
+                // Проходим по всем сообщениям в объекте
+                Object.values(data).forEach(m => {
+                    const div = document.createElement('div');
+                    const isMy = m.sender === currentUser.name;
+                    
+                    div.className = `msg ${isMy ? 'sent' : 'received'}`;
+                    if (m.isSticker) {
+                        div.style.background = 'none';
+                        div.style.fontSize = '45px';
+                    }
+                    
+                    div.innerHTML = `
+                        <div>${m.text}</div>
+                        <small style="font-size:10px; opacity:0.5; display:block; margin-top:5px;">${m.time}</small>
+                    `;
+                    container.appendChild(div);
+                });
+                // Скролл вниз к последнему сообщению
+                container.scrollTop = container.scrollHeight;
+            }
+        });
+    },
+
+    send(sticker = null) {
         const input = document.getElementById('msg-input');
-        const text = emoji || input.value.trim();
+        const text = sticker || input.value.trim();
 
-        if (!text || !activeChatPartner) return;
+        if (!text || !activeRecipient) return;
 
-        let history = Storage.getMessages();
-        const chatId = this.getChatId(currentUser.name, activeChatPartner);
+        const chatId = [currentUser.name, activeRecipient].sort().join('_vs_');
+        const chatRef = ref(database, 'messages/' + chatId);
+        
+        // Генерируем новый ключ для сообщения
+        const newMessageRef = push(chatRef);
 
-        if (!history[chatId]) history[chatId] = [];
-
-        history[chatId].push({
+        set(newMessageRef, {
             sender: currentUser.name,
-            content: text,
-            isEmoji: !!emoji,
+            text: text,
+            isSticker: !!sticker,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         });
 
-        Storage.saveMessages(history);
         input.value = '';
-        if (emoji) ui.toggleEmojiPanel();
-        this.renderMessages();
-    },
-
-    getChatId(u1, u2) {
-        return [u1, u2].sort().join('_chat_with_');
-    },
-
-    renderMessages() {
-        const container = document.getElementById('messages-list');
-        container.innerHTML = '';
-
-        const history = Storage.getMessages();
-        const chatId = this.getChatId(currentUser.name, activeChatPartner);
-        const messages = history[chatId] || [];
-
-        messages.forEach(m => {
-            const div = document.createElement('div');
-            const side = m.sender === currentUser.name ? 'sent' : 'received';
-            const style = m.isEmoji ? 'font-size: 40px; background: none;' : '';
-            
-            div.className = `msg ${side}`;
-            div.style = style;
-            div.innerHTML = `
-                <div>${m.content}</div>
-                <div style="font-size: 10px; opacity: 0.6; text-align: right; margin-top: 5px;">${m.time}</div>
-            `;
-            container.appendChild(div);
-        });
-
-        container.scrollTop = container.scrollHeight;
+        if (sticker) ui.toggleStickers();
     }
 };
 
-// === МОДУЛЬ ЗВОНКОВ (CALLS) ===
-const calls = {
-    async initiateCall() {
-        if (!activeChatPartner) return;
-
-        const modal = document.getElementById('call-modal');
-        const ringtone = document.getElementById('ringtone');
-        const status = document.getElementById('call-status');
-        
-        document.getElementById('call-name').innerText = activeChatPartner;
-        const users = Storage.getUsers();
-        document.getElementById('call-avatar').src = users[activeChatPartner]?.avatar || '';
-
-        modal.classList.remove('hidden');
-        ringtone.play();
-
-        try {
-            // Работа с камерой
-            videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            document.getElementById('local-video').srcObject = videoStream;
-            status.innerText = "Ожидание ответа...";
-        } catch (e) {
-            status.innerText = "Ошибка: камера не найдена";
-            console.error(e);
-        }
-
-        // Симуляция соединения
-        setTimeout(() => {
-            if (!modal.classList.contains('hidden')) {
-                ringtone.pause();
-                ringtone.currentTime = 0;
-                status.innerText = "В разговоре...";
-            }
-        }, 3500);
-    },
-
-    endCall() {
-        const modal = document.getElementById('call-modal');
-        const ringtone = document.getElementById('ringtone');
-
-        if (videoStream) {
-            videoStream.getTracks().forEach(track => track.stop());
-            document.getElementById('local-video').srcObject = null;
-        }
-
-        ringtone.pause();
-        ringtone.currentTime = 0;
-        modal.classList.add('hidden');
-    }
-};
-
-// === МОДУЛЬ ИНТЕРФЕЙСА (UI) ===
+// === ИНТЕРФЕЙС ===
 const ui = {
     init() {
         if (!currentUser) return;
 
+        // Показываем мессенджер
         document.getElementById('auth-screen').classList.add('hidden');
         document.getElementById('app-container').classList.remove('hidden');
 
+        // Данные своего профиля
         document.getElementById('my-name-display').innerText = currentUser.name;
         document.getElementById('my-avatar-img').src = currentUser.avatar;
 
-        // Наполнение панели эмодзи
-        const panel = document.getElementById('emoji-panel');
-        EMOJIS.forEach(e => {
+        // Заполняем стикеры
+        const picker = document.getElementById('sticker-picker');
+        STICKERS.forEach(s => {
             const span = document.createElement('span');
-            span.className = 'emoji-item';
-            span.innerText = e;
-            span.onclick = () => chat.sendMessage(e);
-            panel.appendChild(span);
+            span.className = 'sticker';
+            span.innerText = s;
+            span.style.cursor = 'pointer';
+            span.onclick = () => chat.send(s);
+            picker.appendChild(span);
         });
 
-        // Слушатель Enter
-        document.getElementById('msg-input').onkeypress = (e) => {
-            if (e.key === 'Enter') chat.sendMessage();
-        };
+        // Отправка на Enter
+        document.getElementById('msg-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') chat.send();
+        });
     },
-
-    toggleSettings(show) {
-        const modal = document.getElementById('settings-modal');
-        if (show) {
-            modal.classList.remove('hidden');
-            document.getElementById('edit-username-input').value = currentUser.name;
-            document.getElementById('edit-preview-avatar').src = currentUser.avatar;
-        } else {
-            modal.classList.add('hidden');
-        }
-    },
-
-    toggleEmojiPanel() {
-        document.getElementById('emoji-panel').classList.toggle('hidden');
+    toggleStickers() {
+        document.getElementById('sticker-picker').classList.toggle('hidden');
     }
 };
 
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-
-// Поиск пользователей
+// --- ПОИСК ---
 document.getElementById('user-search').oninput = (e) => {
-    const query = e.target.value.trim();
+    const q = e.target.value.trim();
     const list = document.getElementById('contacts-list');
     list.innerHTML = '';
 
-    if (query) {
-        const allUsers = Storage.getUsers();
-        // Берем фото из базы или дефолтное
-        const pic = allUsers[query] ? allUsers[query].avatar : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
-
-        const div = document.createElement('div');
-        div.className = 'contact-item';
-        div.innerHTML = `
-            <img src="${pic}">
-            <div>
-                <strong>${query}</strong><br>
-                <small>${allUsers[query] ? 'Пользователь системы' : 'Нажмите, чтобы написать'}</small>
-            </div>
-        `;
-        div.onclick = () => chat.openChat(query);
-        list.appendChild(div);
+    if (q && q !== currentUser.name) {
+        const item = document.createElement('div');
+        item.className = 'contact-item';
+        item.style.padding = '15px';
+        item.style.cursor = 'pointer';
+        item.style.borderBottom = '1px solid #222d34';
+        item.innerHTML = `<strong>${q}</strong> <br> <small style="color:gray">Нажмите, чтобы открыть чат</small>`;
+        item.onclick = () => chat.open(q);
+        list.appendChild(item);
     }
 };
 
-// Загрузка фото через FileReader
-function setupAvatarLogic(inputId, previewId) {
-    document.getElementById(inputId).onchange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => document.getElementById(previewId).src = event.target.result;
-            reader.readAsDataURL(file);
-        }
-    };
-}
-setupAvatarLogic('avatar-input', 'preview-avatar');
-setupAvatarLogic('edit-avatar-input', 'edit-preview-avatar');
+// --- ОБРАБОТКА АВАТАРА ---
+document.getElementById('avatar-input').onchange = (e) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => document.getElementById('preview-avatar').src = ev.target.result;
+    reader.readAsDataURL(e.target.files[0]);
+};
 
-// СТАРТ
+// ЗАПУСК
 ui.init();
